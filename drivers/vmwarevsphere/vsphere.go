@@ -43,12 +43,13 @@ const (
 
 type Driver struct {
 	*drivers.BaseDriver
-	Memory         int
-	DiskSize       int
-	CPU            int
-	ISO            string
-	Boot2DockerURL string
-	CPUS           int
+	Memory            int
+	DiskSize          int
+	CPU               int
+	ISO               string
+	Boot2DockerURL    string
+	Boot2DockerDSPath string
+	CPUS              int
 
 	IP         string
 	Port       int
@@ -98,6 +99,11 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			EnvVar: "VSPHERE_BOOT2DOCKER_URL",
 			Name:   "vmwarevsphere-boot2docker-url",
 			Usage:  "vSphere URL for boot2docker image",
+		},
+		mcnflag.StringFlag{
+			EnvVar: "VSPHERE_BOOT2DOCKER_DS_PATH",
+			Name:   "vmwarevsphere-boot2docker-ds-path",
+			Usage:  "vSphere datastore path for existing boot2docker image",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "VSPHERE_VCENTER",
@@ -184,12 +190,14 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	if drivers.EngineInstallURLFlagSet(flags) {
 		return errors.New("--engine-install-url cannot be used with the vmwarevsphere driver, use --vmwarevsphere-boot2docker-url instead")
 	}
+
 	d.SSHUser = "docker"
 	d.SSHPort = 22
 	d.CPU = flags.Int("vmwarevsphere-cpu-count")
 	d.Memory = flags.Int("vmwarevsphere-memory-size")
 	d.DiskSize = flags.Int("vmwarevsphere-disk-size")
 	d.Boot2DockerURL = flags.String("vmwarevsphere-boot2docker-url")
+	d.Boot2DockerDSPath = flags.String("vmwarevsphere-boot2docker-ds-path")
 	d.IP = flags.String("vmwarevsphere-vcenter")
 	d.Port = flags.Int("vmwarevsphere-vcenter-port")
 	d.Username = flags.String("vmwarevsphere-username")
@@ -435,9 +443,11 @@ func (d *Driver) Create() error {
 	if err != nil {
 		return err
 	}
-	p := soap.DefaultUpload
-	if err = c.Client.UploadFile(d.ISO, dsurl, &p); err != nil {
-		return err
+	if d.Boot2DockerDSPath == "" {
+		p := soap.DefaultUpload
+		if err = c.Client.UploadFile(d.ISO, dsurl, &p); err != nil {
+			return err
+		}
 	}
 
 	// Retrieve the new VM
@@ -471,7 +481,11 @@ func (d *Driver) Create() error {
 		return err
 	}
 
-	add = append(add, devices.InsertIso(cdrom, dss.Path(fmt.Sprintf("%s/%s", d.MachineName, isoFilename))))
+	if d.Boot2DockerDSPath != "" {
+		add = append(add, devices.InsertIso(cdrom, dss.Path(fmt.Sprintf("%s", d.Boot2DockerDSPath))))
+	} else {
+		add = append(add, devices.InsertIso(cdrom, dss.Path(fmt.Sprintf("%s/%s", d.MachineName, isoFilename))))
+	}
 
 	backing, err := net.EthernetCardBackingInfo(ctx)
 	if err != nil {
